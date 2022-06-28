@@ -1,0 +1,847 @@
+C51 COMPILER V9.54   WDCJ                                                                  06/28/2022 14:38:30 PAGE 1   
+
+
+C51 COMPILER V9.54, COMPILATION OF MODULE WDCJ
+OBJECT MODULE PLACED IN .\Objects\wdcj.obj
+COMPILER INVOKED BY: D:\Keil_v5\C51\BIN\C51.EXE wdcj.c OPTIMIZE(8,SPEED) BROWSE DEBUG OBJECTEXTEND PRINT(.\Listings\wdcj
+                    -.lst) TABS(2) OBJECT(.\Objects\wdcj.obj)
+
+line level    source
+
+   1          #include <reg52.h> 
+   2          #include <string.h> 
+   3          #include "stdio.h"
+   4          #include <intrins.h>
+   5          #define uint unsigned int
+   6          #define uchar unsigned char     //宏定义
+   7          #define LCD1602 P0
+   8          sbit SET=P2^5;          //定义调整键
+   9          sbit DEC=P3^2;          //定义减少键
+  10          sbit ADD=P3^3;          //定义增加键
+  11          sbit BUZZ=P2^4;         //定义蜂鸣器
+  12          sbit ALAM=P1^2;       //定义灯光报警
+  13          sbit ALAM1=P1^4;
+  14          sbit DQ=P2^0;           //定义四个DS18B20温度传感器 
+  15          sbit DQ1=P2^1;
+  16          sbit DQ2=P2^2;
+  17          sbit DQ3=P2^3;
+  18          sbit RS = P2^7;
+  19          sbit EN = P2^6;
+  20          sbit led1 = P3^4;                                //定义四个LED灯
+  21          sbit led2 = P3^5;
+  22          sbit led3 = P3^6;
+  23          sbit led4 = P3^7;
+  24          sbit KEY1 = P1^1;  
+  25          sbit send = P1^0;
+  26          bit shanshuo_st;          //闪烁间隔标志
+  27          bit beep_st;            //蜂鸣器间隔标志
+  28          uchar x=0;              //计数器
+  29          char Time[] = __TIME__;
+  30          void UsartInit();
+  31          void SendStr(char * str);
+  32          
+  33          uchar code tab1[]={"T:  .  C    .  C"};
+  34          uchar code tab2[]={"  .  C      .  C"};
+  35          uchar code tab3[]={"TH:   C  TL:   C"};
+  36          uint c,c1,c2,c3,c4;
+  37          uchar Mode=0;           //状态标志
+  38          signed char TH=40;      //上限报警温度，默认值为40
+  39          signed char TL=10;      //下限报警温度，默认值为10
+  40          //============================================================================================
+  41          //====================================DS18B20=================================================
+  42          //============================================================================================
+  43          /*****延时子程序*****/
+  44          void Delay_DS18B20(int num)
+  45          {
+  46   1        while(num--) ;
+  47   1      }
+  48          void delay(uint xms)//延时函数，有参函数
+  49          {
+  50   1        uint x,y;
+  51   1        for(x=xms;x>0;x--)
+  52   1         for(y=110;y>0;y--);
+  53   1      }
+  54          /*****初始化DS18B20 温度传感器1*****/
+C51 COMPILER V9.54   WDCJ                                                                  06/28/2022 14:38:30 PAGE 2   
+
+  55          void Init_DS18B20(void)
+  56          {
+  57   1        unsigned char x=0;
+  58   1        DQ = 1;         //DQ复位
+  59   1        Delay_DS18B20(8);    //稍做延时
+  60   1        DQ = 0;         //单片机将DQ拉低
+  61   1        Delay_DS18B20(80);   //精确延时，大于480us
+  62   1        DQ = 1;         //拉高总线
+  63   1        Delay_DS18B20(14);
+  64   1        x = DQ;           //稍做延时后，如果x=0则初始化成功，x=1则初始化失败
+  65   1        Delay_DS18B20(20);
+  66   1      }
+  67          
+  68          /*****读一个字节*****/
+  69          unsigned char ReadOneChar(void)
+  70          {
+  71   1        unsigned char i=0;
+  72   1        unsigned char dat = 0;
+  73   1        for (i=8;i>0;i--)
+  74   1        {
+  75   2          DQ = 0;     // 给脉冲信号
+  76   2          dat>>=1;
+  77   2          DQ = 1;     // 给脉冲信号
+  78   2          if(DQ)
+  79   2          dat|=0x80;
+  80   2          Delay_DS18B20(4);
+  81   2        }
+  82   1        return(dat);
+  83   1      }
+  84          /*****写一个字节*****/
+  85          void WriteOneChar(unsigned char dat)
+  86          {
+  87   1        unsigned char i=0;
+  88   1        for (i=8; i>0; i--)
+  89   1        {
+  90   2          DQ = 0;
+  91   2          DQ = dat&0x01;
+  92   2          Delay_DS18B20(5);
+  93   2          DQ = 1;
+  94   2          dat>>=1;
+  95   2        }
+  96   1      }
+  97          /*****读取温度*****/
+  98          unsigned int ReadTemperature(void)
+  99          {
+ 100   1        unsigned char a=0;
+ 101   1        unsigned char b=0;
+ 102   1        unsigned int t=0;
+ 103   1        float tt=0;
+ 104   1        Init_DS18B20();
+ 105   1        WriteOneChar(0xCC);  //跳过读序号列号的操作
+ 106   1        WriteOneChar(0x44);  //启动温度转换
+ 107   1        Init_DS18B20();
+ 108   1        WriteOneChar(0xCC);  //跳过读序号列号的操作
+ 109   1        WriteOneChar(0xBE);  //读取温度寄存器
+ 110   1        a=ReadOneChar();     //读低8位
+ 111   1        b=ReadOneChar();    //读高8位
+ 112   1        t=b;
+ 113   1        t<<=8;
+ 114   1        t=t|a;
+ 115   1        tt=t*0.0625;
+ 116   1       // t= tt*10+0.5;     //放大10倍输出并四舍五入
+C51 COMPILER V9.54   WDCJ                                                                  06/28/2022 14:38:30 PAGE 3   
+
+ 117   1        t= tt*10+0.5; 
+ 118   1        return(t);
+ 119   1      }
+ 120          
+ 121          
+ 122          /*****初始化DS18B20  温度传感器2*****/
+ 123          void Init1_DS18B20(void)
+ 124          {
+ 125   1        unsigned char x=0;
+ 126   1        DQ1 = 1;         //DQ复位
+ 127   1        Delay_DS18B20(8);    //稍做延时
+ 128   1        DQ1 = 0;         //单片机将DQ拉低
+ 129   1        Delay_DS18B20(80);   //精确延时，大于480us
+ 130   1        DQ1 = 1;         //拉高总线
+ 131   1        Delay_DS18B20(14);
+ 132   1        x = DQ1;           //稍做延时后，如果x=0则初始化成功，x=1则初始化失败
+ 133   1        Delay_DS18B20(20);
+ 134   1      }
+ 135          
+ 136          unsigned char ReadOneChar1(void)
+ 137          {
+ 138   1        unsigned char i=0;
+ 139   1        unsigned char dat = 0;
+ 140   1        for (i=8;i>0;i--)
+ 141   1        {
+ 142   2          DQ1 = 0;     // 给脉冲信号
+ 143   2          dat>>=1;
+ 144   2          DQ1 = 1;     // 给脉冲信号
+ 145   2          if(DQ1)
+ 146   2          dat|=0x80;
+ 147   2          Delay_DS18B20(4);
+ 148   2        }
+ 149   1        return(dat);
+ 150   1      }
+ 151          void WriteOneChar1(unsigned char dat)
+ 152          {
+ 153   1        unsigned char i=0;
+ 154   1        for (i=8; i>0; i--)
+ 155   1        {
+ 156   2          DQ1 = 0;
+ 157   2          DQ1 = dat&0x01;
+ 158   2          Delay_DS18B20(5);
+ 159   2          DQ1 = 1;
+ 160   2          dat>>=1;
+ 161   2        }
+ 162   1      }
+ 163          
+ 164          /*****读取温度*****/
+ 165          unsigned int ReadTemperature1(void)
+ 166          {
+ 167   1        unsigned char a=0;
+ 168   1        unsigned char b=0;
+ 169   1        unsigned int t=0;
+ 170   1        float tt=0;
+ 171   1        Init1_DS18B20();
+ 172   1        WriteOneChar1(0xCC);  //跳过读序号列号的操作
+ 173   1        WriteOneChar1(0x44);  //启动温度转换
+ 174   1        Init1_DS18B20();
+ 175   1        WriteOneChar1(0xCC);  //跳过读序号列号的操作
+ 176   1        WriteOneChar1(0xBE);  //读取温度寄存器
+ 177   1        a=ReadOneChar1();     //读低8位
+ 178   1        b=ReadOneChar1();    //读高8位
+C51 COMPILER V9.54   WDCJ                                                                  06/28/2022 14:38:30 PAGE 4   
+
+ 179   1        t=b;
+ 180   1        t<<=8;
+ 181   1        t=t|a;
+ 182   1        tt=t*0.0625;
+ 183   1       // t= tt*10+0.5;     //放大10倍输出并四舍五入
+ 184   1        t= tt*10+0.5; 
+ 185   1        return(t);
+ 186   1      }
+ 187          
+ 188          
+ 189          /*****初始化DS18B20  温度传感器3*****/
+ 190          void Init2_DS18B20(void)
+ 191          {
+ 192   1        unsigned char x=0;
+ 193   1        DQ2 = 1;         //DQ复位
+ 194   1        Delay_DS18B20(8);    //稍做延时
+ 195   1        DQ2 = 0;         //单片机将DQ拉低
+ 196   1        Delay_DS18B20(80);   //精确延时，大于480us
+ 197   1        DQ2 = 1;         //拉高总线
+ 198   1        Delay_DS18B20(14);
+ 199   1        x = DQ2;           //稍做延时后，如果x=0则初始化成功，x=1则初始化失败
+ 200   1        Delay_DS18B20(20);
+ 201   1      }
+ 202          
+ 203          unsigned char ReadOneChar2(void)
+ 204          {
+ 205   1        unsigned char i=0;
+ 206   1        unsigned char dat = 0;
+ 207   1        for (i=8;i>0;i--)
+ 208   1        {
+ 209   2          DQ2 = 0;     // 给脉冲信号
+ 210   2          dat>>=1;
+ 211   2          DQ2 = 1;     // 给脉冲信号
+ 212   2          if(DQ2)
+ 213   2          dat|=0x80;
+ 214   2          Delay_DS18B20(4);
+ 215   2        }
+ 216   1        return(dat);
+ 217   1      }
+ 218          void WriteOneChar2(unsigned char dat)
+ 219          {
+ 220   1        unsigned char i=0;
+ 221   1        for (i=8; i>0; i--)
+ 222   1        {
+ 223   2          DQ2 = 0;
+ 224   2          DQ2 = dat&0x01;
+ 225   2          Delay_DS18B20(5);
+ 226   2          DQ2 = 1;
+ 227   2          dat>>=1;
+ 228   2        }
+ 229   1      }
+ 230          
+ 231          /*****读取温度*****/
+ 232          unsigned int ReadTemperature2(void)
+ 233          {
+ 234   1        unsigned char a=0;
+ 235   1        unsigned char b=0;
+ 236   1        unsigned int t=0;
+ 237   1        float tt=0;
+ 238   1        Init2_DS18B20();
+ 239   1        WriteOneChar2(0xCC);  //跳过读序号列号的操作
+ 240   1        WriteOneChar2(0x44);  //启动温度转换
+C51 COMPILER V9.54   WDCJ                                                                  06/28/2022 14:38:30 PAGE 5   
+
+ 241   1        Init2_DS18B20();
+ 242   1        WriteOneChar2(0xCC);  //跳过读序号列号的操作
+ 243   1        WriteOneChar2(0xBE);  //读取温度寄存器
+ 244   1        a=ReadOneChar2();     //读低8位
+ 245   1        b=ReadOneChar2();    //读高8位
+ 246   1        t=b;
+ 247   1        t<<=8;
+ 248   1        t=t|a;
+ 249   1        tt=t*0.0625;
+ 250   1       // t= tt*10+0.5;     //放大10倍输出并四舍五入
+ 251   1        t= tt*10+0.5; 
+ 252   1        return(t);
+ 253   1      }
+ 254          
+ 255          /*****初始化DS18B20  温度传感器4*****/
+ 256          void Init3_DS18B20(void)
+ 257          {
+ 258   1        unsigned char x=0;
+ 259   1        DQ3 = 1;         //DQ复位
+ 260   1        Delay_DS18B20(8);    //稍做延时
+ 261   1        DQ3 = 0;         //单片机将DQ拉低
+ 262   1        Delay_DS18B20(80);   //精确延时，大于480us
+ 263   1        DQ3 = 1;         //拉高总线
+ 264   1        Delay_DS18B20(14);
+ 265   1        x = DQ3;           //稍做延时后，如果x=0则初始化成功，x=1则初始化失败
+ 266   1        Delay_DS18B20(20);
+ 267   1      }
+ 268          
+ 269          unsigned char ReadOneChar3(void)
+ 270          {
+ 271   1        unsigned char i=0;
+ 272   1        unsigned char dat = 0;
+ 273   1        for (i=8;i>0;i--)
+ 274   1        {
+ 275   2          DQ3 = 0;     // 给脉冲信号
+ 276   2          dat>>=1;
+ 277   2          DQ3 = 1;     // 给脉冲信号
+ 278   2          if(DQ3)
+ 279   2          dat|=0x80;
+ 280   2          Delay_DS18B20(4);
+ 281   2        }
+ 282   1        return(dat);
+ 283   1      }
+ 284          void WriteOneChar3(unsigned char dat)
+ 285          {
+ 286   1        unsigned char i=0;
+ 287   1        for (i=8; i>0; i--)
+ 288   1        {
+ 289   2          DQ3 = 0;
+ 290   2          DQ3 = dat&0x01;
+ 291   2          Delay_DS18B20(5);
+ 292   2          DQ3 = 1;
+ 293   2          dat>>=1;
+ 294   2        }
+ 295   1      }
+ 296          
+ 297          /*****读取温度*****/
+ 298          unsigned int ReadTemperature3(void)
+ 299          {
+ 300   1        unsigned char a=0;
+ 301   1        unsigned char b=0;
+ 302   1        unsigned int t=0;
+C51 COMPILER V9.54   WDCJ                                                                  06/28/2022 14:38:30 PAGE 6   
+
+ 303   1        float tt=0;
+ 304   1        Init3_DS18B20();
+ 305   1        WriteOneChar3(0xCC);  //跳过读序号列号的操作
+ 306   1        WriteOneChar3(0x44);  //启动温度转换
+ 307   1        Init3_DS18B20();
+ 308   1        WriteOneChar3(0xCC);  //跳过读序号列号的操作
+ 309   1        WriteOneChar3(0xBE);  //读取温度寄存器
+ 310   1        a=ReadOneChar3();     //读低8位
+ 311   1        b=ReadOneChar3();    //读高8位
+ 312   1        t=b;
+ 313   1        t<<=8;
+ 314   1        t=t|a;
+ 315   1        tt=t*0.0625;
+ 316   1       // t= tt*10+0.5;     //放大10倍输出并四舍五入
+ 317   1        t= tt*10+0.5; 
+ 318   1        return(t);
+ 319   1      }
+ 320          
+ 321          /*****读取温度*****/
+ 322          void check_wendu(void)
+ 323          {
+ 324   1        c=ReadTemperature()-5;        //获取温度值并减去DS18B20的温漂误差
+ 325   1        if(c>1200)
+ 326   1        c=1200;
+ 327   1        c1=ReadTemperature1()-5;        //获取温度值并减去DS18B20的温漂误差
+ 328   1        if(c1>1200)
+ 329   1        c1=1200;
+ 330   1        c2=ReadTemperature2()-5;        //获取温度值并减去DS18B20的温漂误差
+ 331   1        if(c2>1200)
+ 332   1        c2=1200;
+ 333   1        c3=ReadTemperature3()-5;        //获取温度值并减去DS18B20的温漂误差
+ 334   1        if(c3>1200)
+ 335   1        c3=1200;
+ 336   1        c4=(c1+c2+c+c3)/4;
+ 337   1      }
+ 338          
+ 339          
+ 340          
+ 341          /********液晶写入指令函数与写入数据函数，以后可调用**************/
+ 342          
+ 343          void write_1602com(uchar com)//****液晶写入指令函数****
+ 344          {
+ 345   1        RS=0;//数据/指令选择置为指令
+ 346   1      //  rw=0; //读写选择置为写
+ 347   1        LCD1602=com;//送入数据
+ 348   1        delay(1);
+ 349   1        EN=1;//拉高使能端，为制造有效的下降沿做准备
+ 350   1        delay(1);
+ 351   1        EN=0;//en由高变低，产生下降沿，液晶执行命令
+ 352   1      }
+ 353          
+ 354          
+ 355          void write_1602dat(uchar dat)//***液晶写入数据函数****
+ 356          {
+ 357   1        RS=1;//数据/指令选择置为数据
+ 358   1      //  rw=0; //读写选择置为写
+ 359   1        LCD1602=dat;//送入数据
+ 360   1        delay(1);
+ 361   1        EN=1; //en置高电平，为制造下降沿做准备
+ 362   1        delay(1);
+ 363   1        EN=0; //en由高变低，产生下降沿，液晶执行命令
+ 364   1      }
+C51 COMPILER V9.54   WDCJ                                                                  06/28/2022 14:38:30 PAGE 7   
+
+ 365          
+ 366          
+ 367          void lcd_init()//***液晶初始化函数****
+ 368          {
+ 369   1        uchar a;
+ 370   1        write_1602com(0x38);//设置液晶工作模式，意思：16*2行显示，5*7点阵，8位数据
+ 371   1        write_1602com(0x0c);//开显示不显示光标
+ 372   1        write_1602com(0x06);//整屏不移动，光标自动右移
+ 373   1        write_1602com(0x01);//清显示
+ 374   1      
+ 375   1        write_1602com(0x80);//日历显示固定符号从第一行第1个位置之后开始显示
+ 376   1        for(a=0;a<16;a++)
+ 377   1        {
+ 378   2          write_1602dat(tab1[a]);//向液晶屏写日历显示的固定符号部分
+ 379   2          delay(3);
+ 380   2        }
+ 381   1        write_1602com(0x80+0x40);//时间显示固定符号写入位置，从第2个位置后开始显示
+ 382   1        for(a=0;a<16;a++)
+ 383   1        {
+ 384   2          write_1602dat(tab2[a]);//写显示时间固定符号，两个冒号
+ 385   2          delay(3);
+ 386   2        }
+ 387   1      
+ 388   1      }
+ 389          
+ 390          void display()//温度值显示
+ 391          {
+ 392   1        if(Mode==0)
+ 393   1        {
+ 394   2          write_1602com(0x80+2);
+ 395   2          write_1602dat((c%1000)/100+0x30);
+ 396   2          write_1602dat(((c%1000)%100)/10+0x30);
+ 397   2          write_1602com(0x80+5);
+ 398   2          write_1602dat(((c%1000)%100)%10+0x30);
+ 399   2          write_1602com(0x80+6);
+ 400   2          write_1602dat(0xdf);
+ 401   2          write_1602com(0x80+10);
+ 402   2          write_1602dat((c1%1000)/100+0x30);
+ 403   2          write_1602dat(((c1%1000)%100)/10+0x30);
+ 404   2          write_1602com(0x80+13);
+ 405   2          write_1602dat(((c1%1000)%100)%10+0x30);
+ 406   2          write_1602com(0x80+14);
+ 407   2          write_1602dat(0xdf);
+ 408   2          write_1602com(0x80+0x40);
+ 409   2          write_1602dat((c2%1000)/100+0x30);
+ 410   2          write_1602dat(((c2%1000)%100)/10+0x30);
+ 411   2          write_1602com(0x80+0x40+3);
+ 412   2          write_1602dat(((c2%1000)%100)%10+0x30);
+ 413   2          write_1602com(0x80+0x40+4);
+ 414   2          write_1602dat(0xdf);
+ 415   2          write_1602com(0x80+0x40+10);
+ 416   2          write_1602dat((c3%1000)/100+0x30);
+ 417   2          write_1602dat(((c3%1000)%100)/10+0x30);
+ 418   2          write_1602com(0x80+0x40+13);
+ 419   2          write_1602dat(((c3%1000)%100)%10+0x30);
+ 420   2          write_1602com(0x80+0x40+14);
+ 421   2          write_1602dat(0xdf);  
+ 422   2        }
+ 423   1      }
+ 424          //=====================================================================================
+ 425          
+ 426          /*****初始化定时器0*****/
+C51 COMPILER V9.54   WDCJ                                                                  06/28/2022 14:38:30 PAGE 8   
+
+ 427          void InitTimer(void)
+ 428          {
+ 429   1        TMOD=0x1;
+ 430   1        TH0=0x3c;
+ 431   1        TL0=0xb0;     //50ms（晶振12M）
+ 432   1        EA=1;      //全局中断开关
+ 433   1        TR0=1;
+ 434   1        ET0=1;      //开启定时器0
+ 435   1      }
+ 436          
+ 437          void KEY()//按键扫描
+ 438          {
+ 439   1        uchar a;
+ 440   1            //功能键
+ 441   1        if(SET==0)
+ 442   1        { 
+ 443   2          write_1602com(0x01);
+ 444   2          write_1602com(0x80+0x40);//时间显示固定符号写入位置，从第2个位置后开始显示
+ 445   2          for(a=0;a<16;a++)
+ 446   2          {
+ 447   3            write_1602dat(tab3[a]);//写显示时间固定符号，两个冒号
+ 448   3            delay(3);
+ 449   3          } 
+ 450   2          BUZZ=0;
+ 451   2          delay(10);
+ 452   2          if(SET==0)
+ 453   2          {
+ 454   3            Mode++;
+ 455   3            if(Mode==3)
+ 456   3            Mode=0; 
+ 457   3            BUZZ=1;
+ 458   3            write_1602com(0x80+0x40+3);
+ 459   3            write_1602dat(TH/10+0x30);
+ 460   3            write_1602dat(TH%10+0x30);
+ 461   3            write_1602dat(0xdf);
+ 462   3            write_1602com(0x80+0x40+12);
+ 463   3            write_1602dat(TL/10+0x30);
+ 464   3            write_1602dat(TL%10+0x30);
+ 465   3            write_1602dat(0xdf);
+ 466   3          }
+ 467   2          while(SET==0)
+ 468   2          {
+ 469   3            if(Mode==0)
+ 470   3              {
+ 471   4              //  write_1602com(0x80+0x40+6);
+ 472   4                write_1602com(0x0c);
+ 473   4                lcd_init();                   // 液晶显示为检测界面的
+ 474   4            
+ 475   4              } 
+ 476   3            else if(Mode==1)
+ 477   3              {
+ 478   4                write_1602com(0x80+0x40+3);
+ 479   4                write_1602com(0x0f);
+ 480   4              } 
+ 481   3            else
+ 482   3              {
+ 483   4                write_1602com(0x80+0x40+12);
+ 484   4                write_1602com(0x0f);
+ 485   4              }             
+ 486   3          }
+ 487   2        }
+ 488   1        //增加
+C51 COMPILER V9.54   WDCJ                                                                  06/28/2022 14:38:30 PAGE 9   
+
+ 489   1        if(ADD==0&&Mode==1)
+ 490   1        {
+ 491   2          BUZZ=0;
+ 492   2          delay(10);
+ 493   2          if(ADD==0)  
+ 494   2          {
+ 495   3            TH++;
+ 496   3            if(TH>=99)  
+ 497   3            TH=99;
+ 498   3            write_1602com(0x80+0x40+3);
+ 499   3            write_1602dat(TH/10+0x30);
+ 500   3            write_1602dat(TH%10+0x30);
+ 501   3            write_1602dat(0xdf);
+ 502   3            BUZZ=1;
+ 503   3          }
+ 504   2          while(ADD==0);
+ 505   2          
+ 506   2        }
+ 507   1        //减少
+ 508   1        if(DEC==0&&Mode==1)
+ 509   1        {
+ 510   2          BUZZ=0;
+ 511   2          delay(10);
+ 512   2          if(DEC==0)
+ 513   2          {
+ 514   3            TH--;
+ 515   3            if(TH==TL)  
+ 516   3            TH=TL+1;
+ 517   3            write_1602com(0x80+0x40+3);
+ 518   3            write_1602dat(TH/10+0x30);
+ 519   3            write_1602dat(TH%10+0x30);
+ 520   3            write_1602dat(0xdf);
+ 521   3            BUZZ=1;
+ 522   3          }
+ 523   2          while(DEC==0);
+ 524   2        }
+ 525   1        if(ADD==0&&Mode==2)
+ 526   1        {
+ 527   2          BUZZ=0;
+ 528   2          delay(10);
+ 529   2          if(ADD==0)  
+ 530   2          {
+ 531   3            TL++;
+ 532   3            if(TL==TH)  
+ 533   3            TL=TH-1;
+ 534   3            BUZZ=1;
+ 535   3            write_1602com(0x80+0x40+12);
+ 536   3            write_1602dat(TL/10+0x30);
+ 537   3            write_1602dat(TL%10+0x30);
+ 538   3            write_1602dat(0xdf);
+ 539   3          } 
+ 540   2          while(ADD==0);
+ 541   2          
+ 542   2        }
+ 543   1        //减少
+ 544   1        if(DEC==0&&Mode==2)
+ 545   1        {
+ 546   2          BUZZ=0;
+ 547   2          delay(10);
+ 548   2          if(DEC==0)
+ 549   2          {
+ 550   3            TL--;
+C51 COMPILER V9.54   WDCJ                                                                  06/28/2022 14:38:30 PAGE 10  
+
+ 551   3            if(TL<=0) 
+ 552   3            TL=0; 
+ 553   3            write_1602com(0x80+0x40+12);
+ 554   3            write_1602dat(TL/10+0x30);
+ 555   3            write_1602dat(TL%10+0x30);
+ 556   3            write_1602dat(0xdf);
+ 557   3            BUZZ=1;
+ 558   3          }
+ 559   2          while(DEC==0);    
+ 560   2        }
+ 561   1      }
+ 562          
+ 563          /*****报警子程序*****/
+ 564          void Alarm()
+ 565          {
+ 566   1        if(x>=10){beep_st=~beep_st;x=0;}
+ 567   1        if(Mode==0)
+ 568   1        { 
+ 569   2          led1=0;
+ 570   2          led2=0;
+ 571   2          led3=0;
+ 572   2          led4=0;
+ 573   2          if((c/10)>=TH)
+ 574   2          {
+ 575   3            if(beep_st==1)
+ 576   3            BUZZ=1;
+ 577   3            else
+ 578   3            BUZZ=0;
+ 579   3            led1=1;
+ 580   3            SendStr("警告！！！温度1异常 \r\n");
+ 581   3          }
+ 582   2          if((c1/10)>=TH)
+ 583   2          {
+ 584   3            if(beep_st==1)
+ 585   3            BUZZ=1;
+ 586   3            else
+ 587   3            BUZZ=0;
+ 588   3            led2=1;
+ 589   3            SendStr("警告！！！温度2异常 \r\n");
+ 590   3          }
+ 591   2          if((c2/10)>=TH)
+ 592   2          {
+ 593   3            if(beep_st==1)
+ 594   3            BUZZ=1;
+ 595   3            else
+ 596   3            BUZZ=0;
+ 597   3            led3=1;
+ 598   3            SendStr("警告！！！温度3异常 \r\n");
+ 599   3          }
+ 600   2          if((c3/10)>=TH)
+ 601   2          {
+ 602   3            if(beep_st==1)
+ 603   3            BUZZ=1;
+ 604   3            else
+ 605   3            BUZZ=0;
+ 606   3            led4=1;
+ 607   3            SendStr("警告！！！温度4异常 \r\n");
+ 608   3          }
+ 609   2      
+ 610   2          if((c/10)<=TL)
+ 611   2          {
+ 612   3            if(beep_st==1)
+C51 COMPILER V9.54   WDCJ                                                                  06/28/2022 14:38:30 PAGE 11  
+
+ 613   3            BUZZ=1;
+ 614   3            else
+ 615   3            BUZZ=0;
+ 616   3            led1=1;
+ 617   3            SendStr("警告！！！温度1异常 \r\n");
+ 618   3          }
+ 619   2          if((c1/10)<=TL)
+ 620   2          {
+ 621   3            if(beep_st==1)
+ 622   3            BUZZ=1;
+ 623   3            else
+ 624   3            BUZZ=0;
+ 625   3            led2=1;
+ 626   3            SendStr("警告！！！温度2异常 \r\n");
+ 627   3          }
+ 628   2          if((c2/10)<=TL)
+ 629   2          {
+ 630   3            if(beep_st==1)
+ 631   3            BUZZ=1;
+ 632   3            else
+ 633   3            BUZZ=0;
+ 634   3            led3=1;
+ 635   3            SendStr("警告！！！温度3异常 \r\n");
+ 636   3          }
+ 637   2          if((c3/10)<=TL)
+ 638   2          {
+ 639   3            if(beep_st==1)
+ 640   3            BUZZ=1;
+ 641   3            else
+ 642   3            BUZZ=0;
+ 643   3            led4=1;
+ 644   3            SendStr("警告！！！温度4异常 \r\n");
+ 645   3          }
+ 646   2          
+ 647   2          if((c4/10)>=TH)
+ 648   2          {
+ 649   3            ALAM=0;
+ 650   3            ALAM1=1;
+ 651   3            if(beep_st==1)
+ 652   3            BUZZ=1;
+ 653   3            else
+ 654   3            BUZZ=0;
+ 655   3            SendStr("警告！！！温度异常 \r\n");
+ 656   3          }
+ 657   2          else if((c4/10)<TL)
+ 658   2          {
+ 659   3            ALAM1=0;
+ 660   3            ALAM=1;
+ 661   3            if(beep_st==1)
+ 662   3            BUZZ=1;
+ 663   3            else
+ 664   3            BUZZ=0;
+ 665   3            SendStr("警告！！！温度异常 \r\n");
+ 666   3          }
+ 667   2          else
+ 668   2          {
+ 669   3            BUZZ=1;
+ 670   3            ALAM=1;
+ 671   3            ALAM1=1;  
+ 672   3          }
+ 673   2        }
+ 674   1        else
+C51 COMPILER V9.54   WDCJ                                                                  06/28/2022 14:38:30 PAGE 12  
+
+ 675   1        {
+ 676   2          BUZZ=1;
+ 677   2          ALAM=1;
+ 678   2          ALAM1=1;
+ 679   2        }
+ 680   1      }
+ 681          
+ 682          /*****时间函数*****/
+ 683          void time(char *time){
+ 684   1        if(time[3]<'6'){
+ 685   2          if(time[4]<'9'){
+ 686   3            if(time[6]<'6'){
+ 687   4              if(time[7]<'9')
+ 688   4                time[7]=time[7]+1;
+ 689   4              else{
+ 690   5                time[7]='0';
+ 691   5                time[6]=time[6]+1;
+ 692   5              }
+ 693   4            }
+ 694   3              else{
+ 695   4                time[6]='0';
+ 696   4                time[4]=time[4]+1;
+ 697   4              }
+ 698   3            }
+ 699   2          else{
+ 700   3            time[4]='0';
+ 701   3            time[3]=time[3]+1;
+ 702   3          }
+ 703   2        }
+ 704   1        else{
+ 705   2          time[3]='0';
+ 706   2          time[2]=time[2]+1;
+ 707   2        }
+ 708   1                
+ 709   1      }
+ 710          
+ 711          /*****基础信息函数*****/
+ 712          void BasicInfo(void){
+ 713   1            char string[50];
+ 714   1            sprintf(string,"时间:%s %s \r\n",__DATE__,Time);
+ 715   1            SendStr(string);  //串口发送
+ 716   1            sprintf(string,"温度1:%2.1f°C \r\n",c*1.0/10);
+ 717   1            SendStr(string);  //串口发送
+ 718   1            sprintf(string,"温度2:%2.1f°C \r\n",c1*1.0/10);
+ 719   1            SendStr(string);  //串口发送
+ 720   1            sprintf(string,"温度3:%2.1f°C \r\n",c2*1.0/10);
+ 721   1            SendStr(string);  //串口发送
+ 722   1            sprintf(string,"温度4:%2.1f°C \r\n",c3*1.0/10);
+ 723   1            SendStr(string);  //串口发送
+ 724   1            sprintf(string,"平均温度:%2.1f°C \r\n",c4*1.0/10);
+ 725   1            SendStr(string);  //串口发送
+ 726   1      }
+ 727          
+ 728          /*****主函数*****/
+ 729          void main(void)
+ 730          {
+ 731   1        uint z;
+ 732   1        delay(1);
+ 733   1        lcd_init();
+ 734   1        delay(1);
+ 735   1        InitTimer();    //初始化定时器
+ 736   1        
+C51 COMPILER V9.54   WDCJ                                                                  06/28/2022 14:38:30 PAGE 13  
+
+ 737   1        for(z=0;z<100;z++)
+ 738   1        {
+ 739   2          check_wendu();
+ 740   2          delay(1);        
+ 741   2        } 
+ 742   1        UsartInit();
+ 743   1        while(1)
+ 744   1        {
+ 745   2          display();
+ 746   2          KEY();
+ 747   2          Alarm(); 
+ 748   2          check_wendu();
+ 749   2          time(Time);
+ 750   2          if(send==0&&Time[3]!='6'&&Time[6]!='6')
+ 751   2          {
+ 752   3            BasicInfo();
+ 753   3          }
+ 754   2          if(KEY1==0)
+ 755   2          {
+ 756   3            delay(10);
+ 757   3            if(KEY1==0)
+ 758   3            {
+ 759   4              BUZZ=0;
+ 760   4            }
+ 761   3          }
+ 762   2          else
+ 763   2          {
+ 764   3            BUZZ=1;
+ 765   3          }
+ 766   2        }
+ 767   1      }
+ 768          
+ 769          void UsartInit( void ) //串口中断
+ 770          {
+ 771   1        SCON = 0X50;    //设置为工作方式1
+ 772   1        TMOD = 0X20;    //设置计数器工作方式2
+ 773   1        PCON &= 0XEF;   //波特率加倍
+ 774   1        TH1  = 0XFD;    //计数器初始值设置，注意波特率是9600的
+ 775   1        TL1  = 0XFD;
+ 776   1        
+ 777   1        IE = 0X00;
+ 778   1        TR1  = 1;     //打开计数器
+ 779   1      }
+ 780          
+ 781          /*******************************************************************************
+ 782          * 函 数 名    : SendStr
+ 783          * 函数功能    : 发送字符串
+ 784          * 输  入      : 字符串
+ 785          * 输  出      : 无
+ 786          *******************************************************************************/
+ 787          void SendStr(char * str)//串口发送函数
+ 788          {
+ 789   1        
+ 790   1        while(*str != '\0')
+ 791   1        {
+ 792   2          SBUF = *str;  //发送一个字符
+ 793   2          while(!TI);   //等待串口发送完成，发送完成后 TI 自动置1
+ 794   2          TI = 0;       //TI 置0
+ 795   2          str++;        //指针加一
+ 796   2        }
+ 797   1      }
+
+C51 COMPILER V9.54   WDCJ                                                                  06/28/2022 14:38:30 PAGE 14  
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   3016    ----
+   CONSTANT SIZE    =    284    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     23      68
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      2    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,3 @@
+".\Objects\wdcj.obj" 
+TO ".\Objects\wdcj" 
+PRINT(".\Listings\wdcj.m51")
